@@ -30,9 +30,9 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Web Structure & Dependencies
+      - name: Generate Web Platform Files
         run: |
-          flutter create . --project-name=jeeproute_ph --platforms=web --force
+          flutter create --platforms=web .
           flutter pub get
 
       - name: Build Web Bundle
