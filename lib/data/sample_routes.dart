@@ -44,16 +44,48 @@ class NationwideRoute {
   });
 }
 
+class LandmarkNode {
+  final String name;
+  final String city;
+  final LatLng coordinates;
+
+  const LandmarkNode({
+    required this.name,
+    required this.city,
+    required this.coordinates,
+  });
+}
+
+// Searchable Landmark Nodes for Auto-Complete & Origin/Destination Pairing
+final List<LandmarkNode> searchableLandmarks = [
+  const LandmarkNode(name: "Philcoa Terminal", city: "Quezon City", coordinates: LatLng(14.6536, 121.0531)),
+  const LandmarkNode(name: "UP Diliman Campus", city: "Quezon City", coordinates: LatLng(14.6585, 121.0722)),
+  const LandmarkNode(name: "SM North EDSA", city: "Quezon City", coordinates: LatLng(14.6560, 121.0280)),
+  const LandmarkNode(name: "Trinoma / North Ave", city: "Quezon City", coordinates: LatLng(14.6530, 121.0325)),
+  const LandmarkNode(name: "Araneta Center-Cubao", city: "Quezon City", coordinates: LatLng(14.6195, 121.0514)),
+  const LandmarkNode(name: "Maginhawa Food Street", city: "Quezon City", coordinates: LatLng(14.6492, 121.0615)),
+  const LandmarkNode(name: "Monumento Circle", city: "Caloocan", coordinates: LatLng(14.6575, 120.9839)),
+  const LandmarkNode(name: "PITX Metro Terminal", city: "Parañaque", coordinates: LatLng(14.5097, 120.9912)),
+  const LandmarkNode(name: "Taft Ave Station", city: "Pasay", coordinates: LatLng(14.5378, 121.0014)),
+  const LandmarkNode(name: "Ayala Center Makati", city: "Makati", coordinates: LatLng(14.5492, 121.0282)),
+  const LandmarkNode(name: "Cebu IT Park", city: "Cebu City", coordinates: LatLng(10.3298, 123.9064)),
+  const LandmarkNode(name: "Colon Street", city: "Cebu City", coordinates: LatLng(10.2975, 123.9001)),
+  const LandmarkNode(name: "Toril Public Market", city: "Davao City", coordinates: LatLng(7.0185, 125.4988)),
+  const LandmarkNode(name: "Roxas Night Market", city: "Davao City", coordinates: LatLng(7.0722, 125.6110)),
+  const LandmarkNode(name: "Baguio City Plaza", city: "Baguio City", coordinates: LatLng(16.4135, 120.5955)),
+  const LandmarkNode(name: "Mines View Park", city: "Baguio City", coordinates: LatLng(16.4245, 120.6275)),
+];
+
 final List<NationwideRoute> sampleNationwideRoutes = [
-  // 1. Philcoa - UP Diliman Campus Loop (True road alignment along Commonwealth, University Ave, Academic Oval)
+  // 1. Philcoa - UP Diliman
   NationwideRoute(
     id: "NCR-JEEP-01",
     name: "Philcoa - UP Diliman Campus",
     signboard: "UP CAMPUS - IKOT",
     region: PhilippineRegion.metroManila,
     category: TransitCategory.traditionalJeep,
-    originTerminal: "Philcoa Jeep Terminal",
-    destTerminal: "UP Diliman Vinzons Hall",
+    originTerminal: "Philcoa Terminal",
+    destTerminal: "UP Diliman Campus",
     stops: const [
       TransitStop(name: "Philcoa Terminal", position: LatLng(14.6536, 121.0531), distanceKmFromOrigin: 0.0),
       TransitStop(name: "University Ave / CP Garcia", position: LatLng(14.6548, 121.0610), distanceKmFromOrigin: 1.1),
@@ -75,22 +107,22 @@ final List<NationwideRoute> sampleNationwideRoutes = [
     ],
   ),
 
-  // 2. EDSA Busway Carousel (Following the actual EDSA arterial corridor without cutting through buildings)
+  // 2. EDSA Busway Carousel
   NationwideRoute(
     id: "NCR-CAROUSEL-02",
     name: "EDSA Busway Carousel",
     signboard: "EDSA CAROUSEL",
     region: PhilippineRegion.metroManila,
     category: TransitCategory.edsaCarousel,
-    originTerminal: "Monumento Concourse",
+    originTerminal: "Monumento Circle",
     destTerminal: "PITX Metro Terminal",
     stops: const [
       TransitStop(name: "Monumento Station", position: LatLng(14.6575, 120.9839), distanceKmFromOrigin: 0.0),
       TransitStop(name: "North Ave / TriNoma", position: LatLng(14.6530, 121.0325), distanceKmFromOrigin: 6.2),
       TransitStop(name: "Quezon Ave Station", position: LatLng(14.6431, 121.0392), distanceKmFromOrigin: 7.8),
-      TransitStop(name: "Cubao Main Ave", position: LatLng(14.6195, 121.0514), distanceKmFromOrigin: 11.0),
+      TransitStop(name: "Araneta Center-Cubao", position: LatLng(14.6195, 121.0514), distanceKmFromOrigin: 11.0),
       TransitStop(name: "Ortigas Busway", position: LatLng(14.5878, 121.0567), distanceKmFromOrigin: 15.3),
-      TransitStop(name: "Ayala MRT Concourse", position: LatLng(14.5492, 121.0282), distanceKmFromOrigin: 20.8),
+      TransitStop(name: "Ayala Center Makati", position: LatLng(14.5492, 121.0282), distanceKmFromOrigin: 20.8),
       TransitStop(name: "PITX Bay 4", position: LatLng(14.5097, 120.9912), distanceKmFromOrigin: 28.1),
     ],
     pathCoordinates: const [
@@ -111,22 +143,22 @@ final List<NationwideRoute> sampleNationwideRoutes = [
     ],
   ),
 
-  // 3. MRT-3 Real Track Alignment (North Ave to Taft Ave)
+  // 3. MRT-3 Express
   NationwideRoute(
     id: "NCR-MRT3-03",
     name: "MRT-3 Railway Line",
     signboard: "MRT-3 EXPRESS",
     region: PhilippineRegion.metroManila,
     category: TransitCategory.mrt3,
-    originTerminal: "North Avenue Station",
-    destTerminal: "Taft Avenue Station",
+    originTerminal: "Trinoma / North Ave",
+    destTerminal: "Taft Ave Station",
     stops: const [
       TransitStop(name: "North Avenue Station", position: LatLng(14.6523, 121.0323), distanceKmFromOrigin: 0.0),
       TransitStop(name: "GMA-Kamuning", position: LatLng(14.6352, 121.0435), distanceKmFromOrigin: 2.1),
-      TransitStop(name: "Araneta-Cubao", position: LatLng(14.6195, 121.0514), distanceKmFromOrigin: 4.0),
+      TransitStop(name: "Araneta Center-Cubao", position: LatLng(14.6195, 121.0514), distanceKmFromOrigin: 4.0),
       TransitStop(name: "Shaw Boulevard", position: LatLng(14.5815, 121.0538), distanceKmFromOrigin: 8.5),
       TransitStop(name: "Buendia Makati", position: LatLng(14.5540, 121.0345), distanceKmFromOrigin: 12.0),
-      TransitStop(name: "Taft Avenue Terminal", position: LatLng(14.5378, 121.0014), distanceKmFromOrigin: 16.9),
+      TransitStop(name: "Taft Ave Station", position: LatLng(14.5378, 121.0014), distanceKmFromOrigin: 16.9),
     ],
     pathCoordinates: const [
       LatLng(14.6523, 121.0323),
@@ -143,52 +175,49 @@ final List<NationwideRoute> sampleNationwideRoutes = [
     ],
   ),
 
-  // 4. Maginhawa TODA (Realistic Street Curves via Maginhawa and V. Luna)
+  // 4. Maginhawa TODA Trike
   NationwideRoute(
     id: "NCR-TRIKE-05",
     name: "Maginhawa TODA Inner Route",
     signboard: "SIKATUNA TODA",
     region: PhilippineRegion.metroManila,
     category: TransitCategory.tricycle,
-    originTerminal: "V. Luna Ext. Terminal",
-    destTerminal: "CP Garcia / Krus Na Ligas",
+    originTerminal: "Maginhawa Food Street",
+    destTerminal: "Philcoa Terminal",
     stops: const [
-      TransitStop(name: "V. Luna Ext TODA Terminal", position: LatLng(14.6468, 121.0588), distanceKmFromOrigin: 0.0),
-      TransitStop(name: "Maginhawa Food Strip Middle", position: LatLng(14.6492, 121.0615), distanceKmFromOrigin: 0.8),
-      TransitStop(name: "CP Garcia Junction Drop", position: LatLng(14.6515, 121.0652), distanceKmFromOrigin: 1.6),
+      TransitStop(name: "Maginhawa Food Street", position: LatLng(14.6468, 121.0588), distanceKmFromOrigin: 0.0),
+      TransitStop(name: "V. Luna Junction", position: LatLng(14.6492, 121.0615), distanceKmFromOrigin: 0.8),
+      TransitStop(name: "Philcoa Terminal", position: LatLng(14.6536, 121.0531), distanceKmFromOrigin: 1.8),
     ],
     pathCoordinates: const [
       LatLng(14.6468, 121.0588),
       LatLng(14.6475, 121.0598),
       LatLng(14.6485, 121.0608),
       LatLng(14.6492, 121.0615),
-      LatLng(14.6502, 121.0630),
-      LatLng(14.6515, 121.0652),
+      LatLng(14.6510, 121.0560),
+      LatLng(14.6536, 121.0531),
     ],
   ),
 
-  // 5. Metro Cebu Modern PUV Route (Cebu IT Park to Colon Obelisk via Osmeña Blvd)
+  // 5. Cebu Modern PUV
   NationwideRoute(
     id: "CEB-MPUV-01",
     name: "Cebu IT Park - Colon Obelisk Modern PUV",
     signboard: "17B / 17D CEBU",
     region: PhilippineRegion.metroCebu,
     category: TransitCategory.modernJeep,
-    originTerminal: "Cebu IT Park Transport Hub",
-    destTerminal: "Colon Street Downtown Terminal",
+    originTerminal: "Cebu IT Park",
+    destTerminal: "Colon Street",
     stops: const [
-      TransitStop(name: "Cebu IT Park Hub", position: LatLng(10.3298, 123.9064), distanceKmFromOrigin: 0.0),
+      TransitStop(name: "Cebu IT Park", position: LatLng(10.3298, 123.9064), distanceKmFromOrigin: 0.0),
       TransitStop(name: "Ayala Center Cebu Hub", position: LatLng(10.3175, 123.9056), distanceKmFromOrigin: 1.8),
-      TransitStop(name: "Fuente Osmeña Circle", position: LatLng(10.3114, 123.8938), distanceKmFromOrigin: 3.5),
-      TransitStop(name: "Colon Obelisk Terminal", position: LatLng(10.2975, 123.9001), distanceKmFromOrigin: 5.4),
+      TransitStop(name: "Colon Street", position: LatLng(10.2975, 123.9001), distanceKmFromOrigin: 5.4),
     ],
     pathCoordinates: const [
       LatLng(10.3298, 123.9064),
       LatLng(10.3245, 123.9060),
       LatLng(10.3175, 123.9056),
-      LatLng(10.3140, 123.9010),
       LatLng(10.3114, 123.8938),
-      LatLng(10.3040, 123.8960),
       LatLng(10.2975, 123.9001),
     ],
   ),
