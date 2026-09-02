@@ -45,11 +45,18 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   final MapController _mapController = MapController();
   final Distance _distanceCalculator = const Distance();
 
+  // Search & Routing Controller State
+  final TextEditingController _originCtrl = TextEditingController(text: "My Current Location");
+  final TextEditingController _destCtrl = TextEditingController(text: "UP Diliman Campus");
+  LatLng? _searchOriginPoint;
+  LatLng? _searchDestPoint;
+
   PhilippineRegion _selectedRegion = PhilippineRegion.metroManila;
   late NationwideRoute _selectedRoute;
   double _tripDistanceKm = 3.5;
   bool _isDiscounted = false;
 
+  // Realtime GPS Tracking
   bool _isNavigating = false;
   bool _isLocating = false;
   LatLng? _currentLocation;
@@ -63,11 +70,14 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
       (r) => r.region == _selectedRegion,
       orElse: () => sampleNationwideRoutes.first,
     );
+    _searchDestPoint = _selectedRoute.pathCoordinates.last;
   }
 
   @override
   void dispose() {
     _positionStreamSubscription?.cancel();
+    _originCtrl.dispose();
+    _destCtrl.dispose();
     super.dispose();
   }
 
@@ -75,35 +85,117 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     return sampleNationwideRoutes.where((r) => r.region == _selectedRegion).toList();
   }
 
-  void _onRegionChanged(PhilippineRegion region) {
+  void _calculateTripFromSearch() {
+    LatLng origin = _searchOriginPoint ?? (_currentLocation ?? _selectedRoute.pathCoordinates.first);
+    LatLng dest = _searchDestPoint ?? _selectedRoute.pathCoordinates.last;
+
+    final meters = _distanceCalculator.as(LengthUnit.Meter, origin, dest);
     setState(() {
-      _selectedRegion = region;
-      final matched = _currentRegionRoutes;
-      if (matched.isNotEmpty) {
-        _selectedRoute = matched.first;
-        _mapController.move(_selectedRoute.pathCoordinates.first, 13.8);
-      }
+      _tripDistanceKm = (meters / 1000).clamp(0.5, 300.0);
     });
+
+    _mapController.move(origin, 14.0);
   }
 
-  void _onSelectRoute(NationwideRoute route) {
-    setState(() {
-      _selectedRoute = route;
-      if (_currentLocation != null) {
-        final dest = route.pathCoordinates.last;
-        final meters = _distanceCalculator.as(LengthUnit.Meter, _currentLocation!, dest);
-        _tripDistanceKm = (meters / 1000).clamp(0.5, 30.0);
+  Future<void> _useCurrentLocationAsOrigin() async {
+    setState(() => _isLocating = true);
+
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() => _isLocating = false);
+      _showMessage("Enable GPS location services on your device.");
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() => _isLocating = false);
+        _showMessage("Location permission denied.");
+        return;
       }
-    });
-    _mapController.move(route.pathCoordinates.first, 14.2);
+    }
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final userPt = LatLng(pos.latitude, pos.longitude);
+      setState(() {
+        _currentLocation = userPt;
+        _searchOriginPoint = userPt;
+        _originCtrl.text = "My Current Location (GPS)";
+        _isLocating = false;
+      });
+      _calculateTripFromSearch();
+      _showMessage("Origin updated to live GPS location.");
+    } catch (_) {
+      setState(() => _isLocating = false);
+      _showMessage("Could not fetch GPS coordinates.");
+    }
   }
 
-  void _onSelectStop(TransitStop stop) {
+  void _chooseLandmark({required bool isOrigin, required LandmarkNode node}) {
     setState(() {
-      _tripDistanceKm = stop.distanceKmFromOrigin > 0 ? stop.distanceKmFromOrigin : 0.5;
+      if (isOrigin) {
+        _originCtrl.text = node.name;
+        _searchOriginPoint = node.coordinates;
+      } else {
+        _destCtrl.text = node.name;
+        _searchDestPoint = node.coordinates;
+      }
     });
-    _mapController.move(stop.position, 15.5);
-    _showMessage("Target Stop: ${stop.name} (${_tripDistanceKm.toStringAsFixed(1)} KM)");
+    Navigator.pop(context);
+    _calculateTripFromSearch();
+  }
+
+  void _openSearchDialog(bool isOrigin) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isOrigin ? "Select Origin Terminal / Landmark" : "Select Destination Terminal / Landmark",
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFFF59E0B)),
+              ),
+              const SizedBox(height: 12),
+              if (isOrigin)
+                ListTile(
+                  leading: const Icon(Icons.my_location, color: Color(0xFF06B6D4)),
+                  title: const Text("Use My Current GPS Location", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _useCurrentLocationAsOrigin();
+                  },
+                ),
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: searchableLandmarks.length,
+                  itemBuilder: (context, i) {
+                    final node = searchableLandmarks[i];
+                    return ListTile(
+                      leading: const Icon(Icons.place_outlined, color: Colors.white70),
+                      title: Text(node.name, style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(node.city, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                      onTap: () => _chooseLandmark(isOrigin: isOrigin, node: node),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _toggleNavigation() async {
@@ -123,7 +215,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() => _isLocating = false);
-      _showMessage("Enable GPS location services on your phone.");
+      _showMessage("Enable GPS location services on your device.");
       return;
     }
 
@@ -157,7 +249,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
           _currentLocation = newPoint;
           _isLocating = false;
 
-          final dest = _selectedRoute.pathCoordinates.last;
+          final dest = _searchDestPoint ?? _selectedRoute.pathCoordinates.last;
           final metersToDest = _distanceCalculator.as(LengthUnit.Meter, newPoint, dest);
           _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 30.0);
         });
@@ -177,7 +269,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   }
 
   Future<void> _openGoogleMapsNavigation() async {
-    final dest = _selectedRoute.pathCoordinates.last;
+    final dest = _searchDestPoint ?? _selectedRoute.pathCoordinates.last;
     final destLat = dest.latitude;
     final destLng = dest.longitude;
 
@@ -228,33 +320,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     );
   }
 
-  String _getRegionName(PhilippineRegion reg) {
-    switch (reg) {
-      case PhilippineRegion.metroManila:
-        return "Metro Manila";
-      case PhilippineRegion.metroCebu:
-        return "Metro Cebu";
-      case PhilippineRegion.metroDavao:
-        return "Metro Davao";
-      case PhilippineRegion.northernLuzon:
-        return "Northern Luzon";
-    }
-  }
-
-  // Find intermediate stop label closest to selected kilometers
-  String _getNearestStopLabel(double km) {
-    TransitStop nearest = _selectedRoute.stops.first;
-    double minDiff = (nearest.distanceKmFromOrigin - km).abs();
-    for (final s in _selectedRoute.stops) {
-      final diff = (s.distanceKmFromOrigin - km).abs();
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = s;
-      }
-    }
-    return nearest.name;
-  }
-
   @override
   Widget build(BuildContext context) {
     final tariff = nationwideFares[_selectedRoute.category] ?? nationwideFares[TransitCategory.traditionalJeep]!;
@@ -264,7 +329,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Dark Basemap with True Turn-by-Turn Road Polylines & Stops
+          // 1. Dark Basemap
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -282,8 +347,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                 userAgentPackageName: 'com.jeeproute.ph',
                 maxZoom: 16,
               ),
-
-              // Road-following Route Line
               PolylineLayer(
                 polylines: [
                   Polyline(
@@ -293,60 +356,20 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   ),
                 ],
               ),
-
-              // Detailed Transit Stops & Stations Markers
               MarkerLayer(
                 markers: [
-                  // Intermediate Stops along the road
-                  ..._selectedRoute.stops.asMap().entries.map((entry) {
-                    final idx = entry.key;
-                    final stop = entry.value;
-                    final isOrigin = idx == 0;
-                    final isDest = idx == _selectedRoute.stops.length - 1;
-
-                    if (isOrigin) {
-                      return Marker(
-                        point: stop.position,
-                        width: 44,
-                        height: 44,
-                        child: _buildGlowMarker(Icons.directions_bus, const Color(0xFF10B981)),
-                      );
-                    } else if (isDest) {
-                      return Marker(
-                        point: stop.position,
-                        width: 44,
-                        height: 44,
-                        child: _buildGlowMarker(Icons.flag, const Color(0xFFEF4444)),
-                      );
-                    } else {
-                      return Marker(
-                        point: stop.position,
-                        width: 26,
-                        height: 26,
-                        child: GestureDetector(
-                          onTap: () => _onSelectStop(stop),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: routeColor, width: 2.5),
-                              boxShadow: [
-                                BoxShadow(color: routeColor.withOpacity(0.5), blurRadius: 6),
-                              ],
-                            ),
-                            child: Center(
-                              child: Text(
-                                "${idx + 1}",
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                  }),
-
-                  // Realtime User Location Marker
+                  Marker(
+                    point: _selectedRoute.pathCoordinates.first,
+                    width: 44,
+                    height: 44,
+                    child: _buildGlowMarker(Icons.directions_bus, const Color(0xFF10B981)),
+                  ),
+                  Marker(
+                    point: _selectedRoute.pathCoordinates.last,
+                    width: 44,
+                    height: 44,
+                    child: _buildGlowMarker(Icons.flag, const Color(0xFFEF4444)),
+                  ),
                   if (_currentLocation != null)
                     Marker(
                       point: _currentLocation!,
@@ -359,94 +382,87 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ],
           ),
 
-          // 2. Top Region Selection & Header
+          // 2. Guaranteed Notch-Safe Origin & Destination Search Bar
           Positioned(
-            top: 48,
+            top: 0,
             left: 16,
             right: 16,
-            child: Column(
-              children: [
-                _buildGlassContainer(
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: _buildGlassContainer(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  child: Row(
+                  child: Column(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.alt_route, color: Colors.black, size: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _isNavigating ? "LIVE GPS ACTIVE • TURN-BY-TURN" : "JEEPROUTE PH • ROAD NETWORK",
-                              style: TextStyle(
-                                fontSize: 9,
-                                letterSpacing: 1.5,
-                                fontWeight: FontWeight.w900,
-                                color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
+                      // Origin Input Row
+                      Row(
+                        children: [
+                          const Icon(Icons.trip_origin, color: Color(0xFF10B981), size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _openSearchDialog(true),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: Text(
+                                  _originCtrl.text,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
-                            Text(
-                              _selectedRoute.signboard,
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.my_location, color: Color(0xFF06B6D4), size: 20),
+                            tooltip: "Use Current GPS Location",
+                            onPressed: _useCurrentLocationAsOrigin,
+                          ),
+                        ],
                       ),
-                      _buildTypePill(_selectedRoute.category),
+                      const SizedBox(height: 6),
+
+                      // Destination Input Row
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on, color: Color(0xFFEF4444), size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _openSearchDialog(false),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: Text(
+                                  _destCtrl.text,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: PhilippineRegion.values.map((reg) {
-                      final isSelected = reg == _selectedRegion;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6.0),
-                        child: GestureDetector(
-                          onTap: () => _onRegionChanged(reg),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF1E293B).withOpacity(0.9),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: isSelected ? const Color(0xFFF59E0B) : Colors.white24,
-                              ),
-                            ),
-                            child: Text(
-                              _getRegionName(reg),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? Colors.black : Colors.white70,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
+              ),
             ).animate().slideY(begin: -0.4, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating Quick Action Controls
+          // 3. Floating Actions
           Positioned(
             right: 16,
-            bottom: 375,
+            bottom: 390,
             child: Column(
               children: [
                 FloatingActionButton(
@@ -504,13 +520,13 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ),
           ),
 
-          // 4. Bottom Control Sheet with Origin ➔ Destination Fare Display
+          // 4. Bottom Sheet: Suggested Transportation & Realtime Fares
           Positioned(
             left: 16,
             right: 16,
-            bottom: 24,
+            bottom: 20,
             child: _buildGlassContainer(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,7 +539,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                           onTap: _toggleNavigation,
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: _isNavigating
@@ -534,7 +550,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                               boxShadow: [
                                 BoxShadow(
                                   color: (_isNavigating ? const Color(0xFFDC2626) : const Color(0xFF06B6D4)).withOpacity(0.4),
-                                  blurRadius: 12,
+                                  blurRadius: 10,
                                   offset: const Offset(0, 3),
                                 ),
                               ],
@@ -545,16 +561,12 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                                 Icon(
                                   _isNavigating ? Icons.stop_circle_outlined : Icons.navigation,
                                   color: Colors.white,
-                                  size: 18,
+                                  size: 16,
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
                                   _isNavigating ? "STOP GPS" : "START LIVE GPS",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 12,
-                                  ),
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
                                 ),
                               ],
                             ),
@@ -568,7 +580,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                           onTap: _openGoogleMapsNavigation,
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF10B981), Color(0xFF059669)],
@@ -578,15 +590,11 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.map, color: Colors.white, size: 18),
+                                Icon(Icons.map, color: Colors.white, size: 16),
                                 SizedBox(width: 6),
                                 Text(
                                   "G-MAPS",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 12,
-                                  ),
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
                                 ),
                               ],
                             ),
@@ -597,61 +605,74 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Route Choice Chips
+                  const Text(
+                    "SUGGESTED MODES OF TRANSPORTATION",
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.1, color: Color(0xFFF59E0B)),
+                  ),
+                  const SizedBox(height: 8),
+
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: _currentRegionRoutes.map((route) {
                         final isSelected = route.id == _selectedRoute.id;
+                        final rule = nationwideFares[route.category] ?? nationwideFares[TransitCategory.traditionalJeep]!;
+                        final cost = rule.calculateFare(_tripDistanceKm, isDiscounted: _isDiscounted);
+
                         return Padding(
                           padding: const EdgeInsets.only(right: 8.0),
-                          child: ChoiceChip(
-                            label: Text(route.signboard),
-                            selected: isSelected,
-                            selectedColor: const Color(0xFFF59E0B),
-                            backgroundColor: const Color(0xFF1E293B),
-                            labelStyle: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white70,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _selectedRoute = route;
+                                _searchDestPoint = route.pathCoordinates.last;
+                              });
+                              _calculateTripFromSearch();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected ? const Color(0xFFF59E0B) : Colors.white12,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    route.signboard,
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.black : Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  Text(
+                                    "₱${cost.toStringAsFixed(2)}",
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.black : const Color(0xFF06B6D4),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            onSelected: (_) => _onSelectRoute(route),
                           ),
                         );
                       }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // Dynamic Kilometers distinction with Nearest Station Label
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  _isNavigating ? Icons.gps_fixed : Icons.straighten,
-                                  size: 14,
-                                  color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  "${_tripDistanceKm.toStringAsFixed(1)} KM DISTANCE",
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white),
-                                ),
-                              ],
-                            ),
-                            Text(
-                              "Drop-off: ${_getNearestStopLabel(_tripDistanceKm)}",
-                              style: const TextStyle(fontSize: 10, color: Color(0xFF06B6D4), fontWeight: FontWeight.w600),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
+                      Text(
+                        "${_tripDistanceKm.toStringAsFixed(1)} KM TRIP DISTANCE",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70),
                       ),
                       Row(
                         children: [
@@ -667,33 +688,14 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                     ],
                   ),
 
-                  if (!_isNavigating)
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: const Color(0xFFF59E0B),
-                        inactiveTrackColor: Colors.white12,
-                        thumbColor: Colors.white,
-                        trackHeight: 4,
-                      ),
-                      child: Slider(
-                        value: _tripDistanceKm.clamp(0.5, 30.0),
-                        min: 0.5,
-                        max: 30.0,
-                        divisions: 59,
-                        onChanged: (val) => setState(() => _tripDistanceKm = val),
-                      ),
-                    ),
-
-                  const SizedBox(height: 10),
-
-                  // Origin to Destination Fare Summary Card
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    margin: const EdgeInsets.top(6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
                       ),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.35)),
                     ),
                     child: Row(
@@ -704,20 +706,14 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "${tariff.label.toUpperCase()} FARE",
-                                style: const TextStyle(fontSize: 9, letterSpacing: 1.2, color: Colors.white54, fontWeight: FontWeight.bold),
+                                "${tariff.label.toUpperCase()} ESTIMATE",
+                                style: const TextStyle(fontSize: 9, letterSpacing: 1.1, color: Colors.white54, fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      "${_selectedRoute.originTerminal} ➔ ${_selectedRoute.destTerminal}",
-                                      style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                "${_originCtrl.text} ➔ ${_destCtrl.text}",
+                                style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
@@ -726,7 +722,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                         Text(
                           "₱${fare.toStringAsFixed(2)}",
                           style: const TextStyle(
-                            fontSize: 24,
+                            fontSize: 22,
                             fontWeight: FontWeight.w900,
                             color: Color(0xFFF59E0B),
                           ),
@@ -762,54 +758,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
       case TransitCategory.tricycle:
         return const Color(0xFF06B6D4);
     }
-  }
-
-  Widget _buildTypePill(TransitCategory cat) {
-    final color = _getRouteColor(cat);
-    String label = "PUV";
-    switch (cat) {
-      case TransitCategory.traditionalJeep:
-        label = "JEEP";
-        break;
-      case TransitCategory.modernJeep:
-        label = "MPUV";
-        break;
-      case TransitCategory.edsaCarousel:
-        label = "CAROUSEL";
-        break;
-      case TransitCategory.ordinaryBus:
-      case TransitCategory.airconBus:
-        label = "BUS";
-        break;
-      case TransitCategory.mrt3:
-        label = "MRT-3";
-        break;
-      case TransitCategory.lrt1:
-        label = "LRT-1";
-        break;
-      case TransitCategory.lrt2:
-        label = "LRT-2";
-        break;
-      case TransitCategory.pnr:
-        label = "PNR";
-        break;
-      case TransitCategory.tricycle:
-        label = "TRIKE";
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
-      ),
-    );
   }
 
   Widget _buildUserLiveLocationMarker() {
