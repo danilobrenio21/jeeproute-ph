@@ -37,43 +37,43 @@ class NationwideTransitRule {
       total = maxCapFare!;
     }
     if (isDiscounted) {
-      total *= 0.80; // Statutory 20% Student/Senior/PWD discount
+      total *= 0.80; // Statutory 20% discount for Students, PWDs, Seniors
     }
     return double.parse(total.toStringAsFixed(2));
   }
 }
 
-// Master Nationwide Tariff Table
+// Master Tariff Table
 final Map<TransitCategory, NationwideTransitRule> nationwideFares = {
-  TransitCategory.traditionalJeep: NationwideTransitRule(
+  TransitCategory.traditionalJeep: const NationwideTransitRule(
     category: TransitCategory.traditionalJeep,
     label: "Traditional PUJ",
     baseFare: 13.00,
     baseDistanceKm: 4.0,
     perKmRate: 1.80,
   ),
-  TransitCategory.modernJeep: NationwideTransitRule(
+  TransitCategory.modernJeep: const NationwideTransitRule(
     category: TransitCategory.modernJeep,
     label: "Modern PUJ (MPUV)",
     baseFare: 15.00,
     baseDistanceKm: 4.0,
     perKmRate: 2.20,
   ),
-  TransitCategory.ordinaryBus: NationwideTransitRule(
+  TransitCategory.ordinaryBus: const NationwideTransitRule(
     category: TransitCategory.ordinaryBus,
     label: "Ordinary City Bus",
     baseFare: 15.00,
     baseDistanceKm: 5.0,
     perKmRate: 2.65,
   ),
-  TransitCategory.airconBus: NationwideTransitRule(
+  TransitCategory.airconBus: const NationwideTransitRule(
     category: TransitCategory.airconBus,
     label: "Aircon City Bus",
     baseFare: 17.00,
     baseDistanceKm: 5.0,
     perKmRate: 3.10,
   ),
-  TransitCategory.edsaCarousel: NationwideTransitRule(
+  TransitCategory.edsaCarousel: const NationwideTransitRule(
     category: TransitCategory.edsaCarousel,
     label: "EDSA Bus Carousel",
     baseFare: 15.00,
@@ -81,14 +81,14 @@ final Map<TransitCategory, NationwideTransitRule> nationwideFares = {
     perKmRate: 2.65,
     maxCapFare: 75.50,
   ),
-  TransitCategory.tricycle: NationwideTransitRule(
+  TransitCategory.tricycle: const NationwideTransitRule(
     category: TransitCategory.tricycle,
     label: "Tricycle (Standard LGU)",
     baseFare: 15.00,
     baseDistanceKm: 1.0,
     perKmRate: 3.00,
   ),
-  TransitCategory.mrt3: NationwideTransitRule(
+  TransitCategory.mrt3: const NationwideTransitRule(
     category: TransitCategory.mrt3,
     label: "MRT-3",
     baseFare: 13.00,
@@ -96,7 +96,7 @@ final Map<TransitCategory, NationwideTransitRule> nationwideFares = {
     perKmRate: 1.00,
     maxCapFare: 28.00,
   ),
-  TransitCategory.lrt1: NationwideTransitRule(
+  TransitCategory.lrt1: const NationwideTransitRule(
     category: TransitCategory.lrt1,
     label: "LRT-1",
     baseFare: 15.00,
@@ -104,7 +104,7 @@ final Map<TransitCategory, NationwideTransitRule> nationwideFares = {
     perKmRate: 1.21,
     maxCapFare: 45.00,
   ),
-  TransitCategory.lrt2: NationwideTransitRule(
+  TransitCategory.lrt2: const NationwideTransitRule(
     category: TransitCategory.lrt2,
     label: "LRT-2",
     baseFare: 15.00,
@@ -112,7 +112,7 @@ final Map<TransitCategory, NationwideTransitRule> nationwideFares = {
     perKmRate: 1.21,
     maxCapFare: 35.00,
   ),
-  TransitCategory.pnr: NationwideTransitRule(
+  TransitCategory.pnr: const NationwideTransitRule(
     category: TransitCategory.pnr,
     label: "PNR Commuter",
     baseFare: 15.00,
