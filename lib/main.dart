@@ -45,13 +45,11 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   final MapController _mapController = MapController();
   final Distance _distanceCalculator = const Distance();
 
-  // Region and Route State
   PhilippineRegion _selectedRegion = PhilippineRegion.metroManila;
   late NationwideRoute _selectedRoute;
   double _tripDistanceKm = 3.5;
   bool _isDiscounted = false;
 
-  // Realtime GPS Tracking State
   bool _isNavigating = false;
   bool _isLocating = false;
   LatLng? _currentLocation;
@@ -80,10 +78,10 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   void _onRegionChanged(PhilippineRegion region) {
     setState(() {
       _selectedRegion = region;
-      final matchedRoutes = _currentRegionRoutes;
-      if (matchedRoutes.isNotEmpty) {
-        _selectedRoute = matchedRoutes.first;
-        _mapController.move(_selectedRoute.pathCoordinates.first, 13.5);
+      final matched = _currentRegionRoutes;
+      if (matched.isNotEmpty) {
+        _selectedRoute = matched.first;
+        _mapController.move(_selectedRoute.pathCoordinates.first, 13.8);
       }
     });
   }
@@ -94,10 +92,18 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
       if (_currentLocation != null) {
         final dest = route.pathCoordinates.last;
         final meters = _distanceCalculator.as(LengthUnit.Meter, _currentLocation!, dest);
-        _tripDistanceKm = (meters / 1000).clamp(0.5, 300.0);
+        _tripDistanceKm = (meters / 1000).clamp(0.5, 30.0);
       }
     });
-    _mapController.move(route.pathCoordinates.first, 14.0);
+    _mapController.move(route.pathCoordinates.first, 14.2);
+  }
+
+  void _onSelectStop(TransitStop stop) {
+    setState(() {
+      _tripDistanceKm = stop.distanceKmFromOrigin > 0 ? stop.distanceKmFromOrigin : 0.5;
+    });
+    _mapController.move(stop.position, 15.5);
+    _showMessage("Target Stop: ${stop.name} (${_tripDistanceKm.toStringAsFixed(1)} KM)");
   }
 
   Future<void> _toggleNavigation() async {
@@ -117,7 +123,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() => _isLocating = false);
-      _showMessage("Enable GPS location services on your device.");
+      _showMessage("Enable GPS location services on your phone.");
       return;
     }
 
@@ -133,7 +139,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
 
     if (permission == LocationPermission.deniedForever) {
       setState(() => _isLocating = false);
-      _showMessage("Location access permanently blocked in device settings.");
+      _showMessage("Location permission permanently denied in device settings.");
       return;
     }
 
@@ -153,24 +159,23 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
 
           final dest = _selectedRoute.pathCoordinates.last;
           final metersToDest = _distanceCalculator.as(LengthUnit.Meter, newPoint, dest);
-          _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 300.0);
+          _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 30.0);
         });
 
         if (_autoCenter) {
           _mapController.move(newPoint, _mapController.camera.zoom);
         }
       },
-      onError: (err) {
+      onError: (_) {
         setState(() {
           _isLocating = false;
           _isNavigating = false;
         });
-        _showMessage("GPS stream interrupted.");
+        _showMessage("GPS stream disconnected.");
       },
     );
   }
 
-  // Opens Turn-by-Turn Directions in Google Maps
   Future<void> _openGoogleMapsNavigation() async {
     final dest = _selectedRoute.pathCoordinates.last;
     final destLat = dest.latitude;
@@ -189,18 +194,18 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
-      _showMessage("Could not open Google Maps navigation.");
+      _showMessage("Could not launch Google Maps.");
     }
   }
 
   void _shareLiveLocation() {
     if (_currentLocation == null) {
-      _showMessage("Acquire GPS coordinates first by starting navigation.");
+      _showMessage("Turn on GPS first to capture live coordinates.");
       return;
     }
     final shareUrl = "https://maps.google.com/?q=${_currentLocation!.latitude},${_currentLocation!.longitude}";
     Clipboard.setData(ClipboardData(text: shareUrl));
-    _showMessage("GPS Pin link copied! Paste into Messenger, SMS, or Telegram.");
+    _showMessage("Live pin copied! Paste into Messenger or SMS.");
   }
 
   void _reCenterToUser() {
@@ -236,20 +241,35 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     }
   }
 
+  // Find intermediate stop label closest to selected kilometers
+  String _getNearestStopLabel(double km) {
+    TransitStop nearest = _selectedRoute.stops.first;
+    double minDiff = (nearest.distanceKmFromOrigin - km).abs();
+    for (final s in _selectedRoute.stops) {
+      final diff = (s.distanceKmFromOrigin - km).abs();
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = s;
+      }
+    }
+    return nearest.name;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tariff = nationwideFares[_selectedRoute.category] ?? nationwideFares[TransitCategory.traditionalJeep]!;
     final fare = tariff.calculateFare(_tripDistanceKm, isDiscounted: _isDiscounted);
+    final routeColor = _getRouteColor(_selectedRoute.category);
 
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Watermark-Free Base Map
+          // 1. Dark Basemap with True Turn-by-Turn Road Polylines & Stops
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _selectedRoute.pathCoordinates.first,
-              initialZoom: 13.5,
+              initialZoom: 14.0,
               onPositionChanged: (pos, hasGesture) {
                 if (hasGesture && _autoCenter) {
                   setState(() => _autoCenter = false);
@@ -262,29 +282,71 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                 userAgentPackageName: 'com.jeeproute.ph',
                 maxZoom: 16,
               ),
+
+              // Road-following Route Line
               PolylineLayer(
                 polylines: [
                   Polyline(
                     points: _selectedRoute.pathCoordinates,
-                    strokeWidth: 6.0,
-                    color: _getRouteColor(_selectedRoute.category),
+                    strokeWidth: 5.5,
+                    color: routeColor,
                   ),
                 ],
               ),
+
+              // Detailed Transit Stops & Stations Markers
               MarkerLayer(
                 markers: [
-                  Marker(
-                    point: _selectedRoute.pathCoordinates.first,
-                    width: 44,
-                    height: 44,
-                    child: _buildGlowMarker(Icons.directions_bus, const Color(0xFF10B981)),
-                  ),
-                  Marker(
-                    point: _selectedRoute.pathCoordinates.last,
-                    width: 44,
-                    height: 44,
-                    child: _buildGlowMarker(Icons.flag, const Color(0xFFEF4444)),
-                  ),
+                  // Intermediate Stops along the road
+                  ..._selectedRoute.stops.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final stop = entry.value;
+                    final isOrigin = idx == 0;
+                    final isDest = idx == _selectedRoute.stops.length - 1;
+
+                    if (isOrigin) {
+                      return Marker(
+                        point: stop.position,
+                        width: 44,
+                        height: 44,
+                        child: _buildGlowMarker(Icons.directions_bus, const Color(0xFF10B981)),
+                      );
+                    } else if (isDest) {
+                      return Marker(
+                        point: stop.position,
+                        width: 44,
+                        height: 44,
+                        child: _buildGlowMarker(Icons.flag, const Color(0xFFEF4444)),
+                      );
+                    } else {
+                      return Marker(
+                        point: stop.position,
+                        width: 26,
+                        height: 26,
+                        child: GestureDetector(
+                          onTap: () => _onSelectStop(stop),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: routeColor, width: 2.5),
+                              boxShadow: [
+                                BoxShadow(color: routeColor.withOpacity(0.5), blurRadius: 6),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                "${idx + 1}",
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                  }),
+
+                  // Realtime User Location Marker
                   if (_currentLocation != null)
                     Marker(
                       point: _currentLocation!,
@@ -297,7 +359,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ],
           ),
 
-          // 2. Top Header & Region Pills
+          // 2. Top Region Selection & Header
           Positioned(
             top: 48,
             left: 16,
@@ -324,7 +386,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isNavigating ? "LIVE GPS ACTIVE • NATIONWIDE" : "JEEPROUTE PH • PHILIPPINES",
+                              _isNavigating ? "LIVE GPS ACTIVE • TURN-BY-TURN" : "JEEPROUTE PH • ROAD NETWORK",
                               style: TextStyle(
                                 fontSize: 9,
                                 letterSpacing: 1.5,
@@ -381,10 +443,10 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ).animate().slideY(begin: -0.4, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating Actions (Google Maps, Share, Recenter)
+          // 3. Floating Quick Action Controls
           Positioned(
             right: 16,
-            bottom: 360,
+            bottom: 375,
             child: Column(
               children: [
                 FloatingActionButton(
@@ -397,7 +459,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                     borderRadius: BorderRadius.circular(12),
                     side: const BorderSide(color: Color(0xFF10B981)),
                   ),
-                  tooltip: "Open in Google Maps",
                   onPressed: _openGoogleMapsNavigation,
                   child: const Icon(Icons.directions, size: 22),
                 ),
@@ -413,7 +474,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                       borderRadius: BorderRadius.circular(12),
                       side: const BorderSide(color: Color(0xFF06B6D4)),
                     ),
-                    tooltip: "Share Pin",
                     onPressed: _shareLiveLocation,
                     child: const Icon(Icons.share_location, size: 20),
                   ),
@@ -444,7 +504,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ),
           ),
 
-          // 4. Bottom Control Sheet
+          // 4. Bottom Control Sheet with Origin ➔ Destination Fare Display
           Positioned(
             left: 16,
             right: 16,
@@ -457,14 +517,13 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                 children: [
                   Row(
                     children: [
-                      // In-App GPS Navigation Toggle
                       Expanded(
                         flex: 3,
                         child: InkWell(
                           onTap: _toggleNavigation,
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: _isNavigating
@@ -495,7 +554,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                                     color: Colors.white,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 12,
-                                    letterSpacing: 0.5,
                                   ),
                                 ),
                               ],
@@ -504,27 +562,18 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-
-                      // Direct Google Maps Button
                       Expanded(
                         flex: 2,
                         child: InkWell(
                           onTap: _openGoogleMapsNavigation,
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF10B981), Color(0xFF059669)],
                               ),
                               borderRadius: BorderRadius.circular(14),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF10B981).withOpacity(0.35),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
                             ),
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -537,7 +586,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                                     color: Colors.white,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 12,
-                                    letterSpacing: 0.5,
                                   ),
                                 ),
                               ],
@@ -547,9 +595,9 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
-                  // Route Selection Chips
+                  // Route Choice Chips
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -573,29 +621,41 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                       }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
-                  // Distance & Discount Row
+                  // Dynamic Kilometers distinction with Nearest Station Label
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            _isNavigating ? Icons.gps_fixed : Icons.straighten,
-                            size: 15,
-                            color: _isNavigating ? const Color(0xFF06B6D4) : Colors.white54,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            "${_tripDistanceKm.toStringAsFixed(1)} KM TO DESTINATION",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70),
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  _isNavigating ? Icons.gps_fixed : Icons.straighten,
+                                  size: 14,
+                                  color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  "${_tripDistanceKm.toStringAsFixed(1)} KM DISTANCE",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              "Drop-off: ${_getNearestStopLabel(_tripDistanceKm)}",
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF06B6D4), fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
                       Row(
                         children: [
-                          const Text("20% Disc.", style: TextStyle(fontSize: 12, color: Colors.white60)),
+                          const Text("20% Disc.", style: TextStyle(fontSize: 11, color: Colors.white60)),
                           const SizedBox(width: 4),
                           Switch(
                             value: _isDiscounted,
@@ -626,7 +686,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
 
                   const SizedBox(height: 10),
 
-                  // Calculated Tariff Banner
+                  // Origin to Destination Fare Summary Card
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
@@ -639,20 +699,30 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "${tariff.label.toUpperCase()} RATE",
-                              style: const TextStyle(fontSize: 10, letterSpacing: 1.2, color: Colors.white54, fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              _selectedRoute.name,
-                              style: const TextStyle(fontSize: 12, color: Colors.white),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "${tariff.label.toUpperCase()} FARE",
+                                style: const TextStyle(fontSize: 9, letterSpacing: 1.2, color: Colors.white54, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      "${_selectedRoute.originTerminal} ➔ ${_selectedRoute.destTerminal}",
+                                      style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 10),
                         Text(
                           "₱${fare.toStringAsFixed(2)}",
                           style: const TextStyle(
