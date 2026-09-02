@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -47,17 +48,12 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
   double _tripDistanceKm = 3.5;
   bool _isDiscounted = false;
 
-  // Realtime GPS State
+  // Realtime GPS & Navigation States
+  bool _isNavigating = false;
+  bool _isLocating = false;
   LatLng? _currentLocation;
   StreamSubscription<Position>? _positionStreamSubscription;
-  bool _isLocating = false;
   bool _autoCenter = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _startLiveGpsTracking();
-  }
 
   @override
   void dispose() {
@@ -65,12 +61,27 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
     super.dispose();
   }
 
-  Future<void> _startLiveGpsTracking() async {
+  // Toggle Live Navigation and GPS Request
+  Future<void> _toggleNavigation() async {
+    if (_isNavigating) {
+      // Stop Navigation
+      await _positionStreamSubscription?.cancel();
+      setState(() {
+        _isNavigating = false;
+        _isLocating = false;
+        _currentLocation = null;
+      });
+      _showMessage("Live navigation paused.");
+      return;
+    }
+
+    // Start Navigation & Request Permissions
     setState(() => _isLocating = true);
 
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() => _isLocating = false);
+      _showMessage("Please enable GPS / Location Services on your device.");
       return;
     }
 
@@ -79,19 +90,22 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() => _isLocating = false);
+        _showMessage("Location permission was denied.");
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
       setState(() => _isLocating = false);
+      _showMessage("Location permissions are permanently denied in settings.");
       return;
     }
 
-    // High accuracy GPS Stream for realtime phone navigation
+    setState(() => _isNavigating = true);
+
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 3, // Updates every 3 meters moved
+      distanceFilter: 3,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
@@ -101,7 +115,6 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
           _currentLocation = newPoint;
           _isLocating = false;
 
-          // Dynamically compute real distance to the destination terminal
           final dest = _selectedRoute.pathCoordinates.last;
           final metersToDest = _distanceCalculator.as(LengthUnit.Meter, newPoint, dest);
           _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 30.0);
@@ -112,9 +125,23 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
         }
       },
       onError: (err) {
-        setState(() => _isLocating = false);
+        setState(() {
+          _isLocating = false;
+          _isNavigating = false;
+        });
+        _showMessage("Error receiving GPS updates.");
       },
     );
+  }
+
+  void _shareLiveLocation() {
+    if (_currentLocation == null) {
+      _showMessage("Please start navigation first to acquire your live coordinates.");
+      return;
+    }
+    final shareUrl = "https://maps.google.com/?q=${_currentLocation!.latitude},${_currentLocation!.longitude}";
+    Clipboard.setData(ClipboardData(text: shareUrl));
+    _showMessage("Location link copied to clipboard! You can paste it into Messenger or SMS.");
   }
 
   void _onSelectRoute(PUVRoute route) {
@@ -134,8 +161,19 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
       setState(() => _autoCenter = true);
       _mapController.move(_currentLocation!, 16.0);
     } else {
-      _startLiveGpsTracking();
+      _toggleNavigation();
     }
+  }
+
+  void _showMessage(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        backgroundColor: const Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -148,7 +186,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Watermark-Free Esri Dark Map Canvas
+          // 1. Dark Map Layer
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -166,8 +204,6 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                 userAgentPackageName: 'com.jeeproute.ph',
                 maxZoom: 16,
               ),
-
-              // PUV Route Line
               PolylineLayer(
                 polylines: [
                   Polyline(
@@ -179,27 +215,20 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                   ),
                 ],
               ),
-
-              // Route & Realtime GPS Markers
               MarkerLayer(
                 markers: [
-                  // Origin Terminal Marker
                   Marker(
                     point: _selectedRoute.pathCoordinates.first,
                     width: 44,
                     height: 44,
                     child: _buildGlowMarker(Icons.directions_bus, const Color(0xFF10B981)),
                   ),
-
-                  // Destination Terminal Marker
                   Marker(
                     point: _selectedRoute.pathCoordinates.last,
                     width: 44,
                     height: 44,
                     child: _buildGlowMarker(Icons.flag, const Color(0xFFEF4444)),
                   ),
-
-                  // Realtime User GPS Location Marker
                   if (_currentLocation != null)
                     Marker(
                       point: _currentLocation!,
@@ -212,7 +241,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
             ],
           ),
 
-          // 2. Top Floating Navigation Header
+          // 2. Top Navigation Bar
           Positioned(
             top: 50,
             left: 16,
@@ -236,13 +265,13 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          "JEEP ROUTE PH • LIVE GPS",
+                        Text(
+                          _isNavigating ? "LIVE GPS ACTIVE" : "JEEP ROUTE PH",
                           style: TextStyle(
                             fontSize: 10,
                             letterSpacing: 1.5,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFFF59E0B),
+                            color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
                           ),
                         ),
                         Text(
@@ -259,44 +288,112 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
             ).animate().slideY(begin: -0.5, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating GPS "Recenter" Action Button
+          // 3. Floating Quick Action Controls (Share + Recenter)
           Positioned(
             right: 16,
-            bottom: 275,
-            child: FloatingActionButton(
-              mini: true,
-              backgroundColor: const Color(0xFF1E293B),
-              foregroundColor: _autoCenter ? const Color(0xFF06B6D4) : Colors.white70,
-              elevation: 6,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: _autoCenter ? const Color(0xFF06B6D4) : Colors.white24,
+            bottom: 335,
+            child: Column(
+              children: [
+                if (_isNavigating) ...[
+                  FloatingActionButton(
+                    heroTag: "share_btn",
+                    mini: true,
+                    backgroundColor: const Color(0xFF1E293B),
+                    foregroundColor: const Color(0xFF06B6D4),
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Color(0xFF06B6D4)),
+                    ),
+                    onPressed: _shareLiveLocation,
+                    child: const Icon(Icons.share_location, size: 20),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                FloatingActionButton(
+                  heroTag: "center_btn",
+                  mini: true,
+                  backgroundColor: const Color(0xFF1E293B),
+                  foregroundColor: _autoCenter && _isNavigating ? const Color(0xFF06B6D4) : Colors.white70,
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: _autoCenter && _isNavigating ? const Color(0xFF06B6D4) : Colors.white24,
+                    ),
+                  ),
+                  onPressed: _reCenterToUser,
+                  child: _isLocating
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF06B6D4)),
+                        )
+                      : Icon(_autoCenter && _isNavigating ? Icons.my_location : Icons.location_searching),
                 ),
-              ),
-              onPressed: _reCenterToUser,
-              child: _isLocating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF06B6D4)),
-                    )
-                  : Icon(_autoCenter ? Icons.my_location : Icons.location_searching),
+              ],
             ),
           ),
 
-          // 4. Bottom Control Card with Dynamic Fare Calculation
+          // 4. Bottom Sheet with "Start Navigation & GPS" Button
           Positioned(
             left: 16,
             right: 16,
             bottom: 24,
             child: _buildGlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Horizontal Route Selection Pills
+                  // Start Navigation Button
+                  InkWell(
+                    onTap: _toggleNavigation,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: _isNavigating
+                              ? [const Color(0xFFDC2626), const Color(0xFF991B1B)]
+                              : [const Color(0xFF06B6D4), const Color(0xFF0891B2)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_isNavigating ? const Color(0xFFDC2626) : const Color(0xFF06B6D4)).withOpacity(0.4),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _isNavigating ? Icons.stop_circle_outlined : Icons.navigation,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isNavigating ? "STOP LIVE NAVIGATION" : "START NAVIGATION & TURN ON GPS",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Route Selection Pills
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -320,7 +417,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                       }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
                   // Distance & Discount Toggle
                   Row(
@@ -329,9 +426,9 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                       Row(
                         children: [
                           Icon(
-                            _currentLocation != null ? Icons.gps_fixed : Icons.straighten,
+                            _isNavigating ? Icons.gps_fixed : Icons.straighten,
                             size: 15,
-                            color: _currentLocation != null ? const Color(0xFF06B6D4) : Colors.white54,
+                            color: _isNavigating ? const Color(0xFF06B6D4) : Colors.white54,
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -353,41 +450,35 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                       ),
                     ],
                   ),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: const Color(0xFFF59E0B),
-                      inactiveTrackColor: Colors.white12,
-                      thumbColor: Colors.white,
-                      trackHeight: 4,
-                    ),
-                    child: Slider(
-                      value: _tripDistanceKm,
-                      min: 0.5,
-                      max: 20.0,
-                      divisions: 39,
-                      onChanged: (val) => setState(() {
-                        _tripDistanceKm = val;
-                      }),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
 
-                  // Dynamic Realtime Fare Output
+                  if (!_isNavigating)
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: const Color(0xFFF59E0B),
+                        inactiveTrackColor: Colors.white12,
+                        thumbColor: Colors.white,
+                        trackHeight: 4,
+                      ),
+                      child: Slider(
+                        value: _tripDistanceKm,
+                        min: 0.5,
+                        max: 20.0,
+                        divisions: 39,
+                        onChanged: (val) => setState(() => _tripDistanceKm = val),
+                      ),
+                    ),
+
+                  const SizedBox(height: 10),
+
+                  // Fare Summary
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
                       ),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.35)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFF59E0B).withOpacity(0.12),
-                          blurRadius: 18,
-                          spreadRadius: 2,
-                        )
-                      ],
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -402,7 +493,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                         Text(
                           "₱${fare.toStringAsFixed(2)}",
                           style: const TextStyle(
-                            fontSize: 26,
+                            fontSize: 24,
                             fontWeight: FontWeight.w900,
                             color: Color(0xFFF59E0B),
                           ),
