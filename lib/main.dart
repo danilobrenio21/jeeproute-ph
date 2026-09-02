@@ -28,27 +28,29 @@ class JeepRouteModernApp extends StatelessWidget {
           surface: Color(0xFF1E293B),
         ),
       ),
-      home: const ModernRouteMapScreen(),
+      home: const NationwideRouteMapScreen(),
     );
   }
 }
 
-class ModernRouteMapScreen extends StatefulWidget {
-  const ModernRouteMapScreen({super.key});
+class NationwideRouteMapScreen extends StatefulWidget {
+  const NationwideRouteMapScreen({super.key});
 
   @override
-  State<ModernRouteMapScreen> createState() => _ModernRouteMapScreenState();
+  State<NationwideRouteMapScreen> createState() => _NationwideRouteMapScreenState();
 }
 
-class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
+class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   final MapController _mapController = MapController();
   final Distance _distanceCalculator = const Distance();
 
-  PUVRoute _selectedRoute = sampleRoutes[0];
+  // Region and Route State
+  PhilippineRegion _selectedRegion = PhilippineRegion.metroManila;
+  late NationwideRoute _selectedRoute;
   double _tripDistanceKm = 3.5;
   bool _isDiscounted = false;
 
-  // Realtime GPS & Navigation States
+  // Realtime GPS Tracking State
   bool _isNavigating = false;
   bool _isLocating = false;
   LatLng? _currentLocation;
@@ -56,15 +58,49 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
   bool _autoCenter = true;
 
   @override
+  void initState() {
+    super.initState();
+    _selectedRoute = sampleNationwideRoutes.firstWhere(
+      (r) => r.region == _selectedRegion,
+      orElse: () => sampleNationwideRoutes.first,
+    );
+  }
+
+  @override
   void dispose() {
     _positionStreamSubscription?.cancel();
     super.dispose();
   }
 
-  // Toggle Live Navigation and GPS Request
+  List<NationwideRoute> get _currentRegionRoutes {
+    return sampleNationwideRoutes.where((r) => r.region == _selectedRegion).toList();
+  }
+
+  void _onRegionChanged(PhilippineRegion region) {
+    setState(() {
+      _selectedRegion = region;
+      final matchedRoutes = _currentRegionRoutes;
+      if (matchedRoutes.isNotEmpty) {
+        _selectedRoute = matchedRoutes.first;
+        _mapController.move(_selectedRoute.pathCoordinates.first, 13.5);
+      }
+    });
+  }
+
+  void _onSelectRoute(NationwideRoute route) {
+    setState(() {
+      _selectedRoute = route;
+      if (_currentLocation != null) {
+        final dest = route.pathCoordinates.last;
+        final meters = _distanceCalculator.as(LengthUnit.Meter, _currentLocation!, dest);
+        _tripDistanceKm = (meters / 1000).clamp(0.5, 300.0);
+      }
+    });
+    _mapController.move(route.pathCoordinates.first, 14.0);
+  }
+
   Future<void> _toggleNavigation() async {
     if (_isNavigating) {
-      // Stop Navigation
       await _positionStreamSubscription?.cancel();
       setState(() {
         _isNavigating = false;
@@ -75,13 +111,12 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
       return;
     }
 
-    // Start Navigation & Request Permissions
     setState(() => _isLocating = true);
 
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() => _isLocating = false);
-      _showMessage("Please enable GPS / Location Services on your device.");
+      _showMessage("Enable GPS location services on your device.");
       return;
     }
 
@@ -90,14 +125,14 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() => _isLocating = false);
-        _showMessage("Location permission was denied.");
+        _showMessage("Location permission denied.");
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
       setState(() => _isLocating = false);
-      _showMessage("Location permissions are permanently denied in settings.");
+      _showMessage("Location access permanently blocked in device settings.");
       return;
     }
 
@@ -117,7 +152,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
 
           final dest = _selectedRoute.pathCoordinates.last;
           final metersToDest = _distanceCalculator.as(LengthUnit.Meter, newPoint, dest);
-          _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 30.0);
+          _tripDistanceKm = (metersToDest / 1000).clamp(0.5, 300.0);
         });
 
         if (_autoCenter) {
@@ -129,31 +164,19 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
           _isLocating = false;
           _isNavigating = false;
         });
-        _showMessage("Error receiving GPS updates.");
+        _showMessage("GPS stream interrupted.");
       },
     );
   }
 
   void _shareLiveLocation() {
     if (_currentLocation == null) {
-      _showMessage("Please start navigation first to acquire your live coordinates.");
+      _showMessage("Acquire GPS coordinates first by starting navigation.");
       return;
     }
     final shareUrl = "https://maps.google.com/?q=${_currentLocation!.latitude},${_currentLocation!.longitude}";
     Clipboard.setData(ClipboardData(text: shareUrl));
-    _showMessage("Location link copied to clipboard! You can paste it into Messenger or SMS.");
-  }
-
-  void _onSelectRoute(PUVRoute route) {
-    setState(() {
-      _selectedRoute = route;
-      if (_currentLocation != null) {
-        final dest = route.pathCoordinates.last;
-        final meters = _distanceCalculator.as(LengthUnit.Meter, _currentLocation!, dest);
-        _tripDistanceKm = (meters / 1000).clamp(0.5, 30.0);
-      }
-    });
-    _mapController.move(route.pathCoordinates.first, 14.5);
+    _showMessage("GPS Pin link copied! Paste into Messenger, SMS, or Telegram.");
   }
 
   void _reCenterToUser() {
@@ -165,10 +188,10 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
     }
   }
 
-  void _showMessage(String text) {
+  void _showMessage(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(text),
+        content: Text(msg),
         backgroundColor: const Color(0xFF1E293B),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
@@ -176,22 +199,33 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
     );
   }
 
+  String _getRegionName(PhilippineRegion reg) {
+    switch (reg) {
+      case PhilippineRegion.metroManila:
+        return "Metro Manila";
+      case PhilippineRegion.metroCebu:
+        return "Metro Cebu";
+      case PhilippineRegion.metroDavao:
+        return "Metro Davao";
+      case PhilippineRegion.northernLuzon:
+        return "Northern Luzon";
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    double fare = _selectedRoute.computeFare(
-      _tripDistanceKm,
-      isDiscounted: _isDiscounted,
-    );
+    final tariff = nationwideFares[_selectedRoute.category] ?? nationwideFares[TransitCategory.traditionalJeep]!;
+    final fare = tariff.calculateFare(_tripDistanceKm, isDiscounted: _isDiscounted);
 
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Dark Map Layer
+          // 1. Esri Watermark-Free Base Map
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _selectedRoute.pathCoordinates.first,
-              initialZoom: 14.5,
+              initialZoom: 13.5,
               onPositionChanged: (pos, hasGesture) {
                 if (hasGesture && _autoCenter) {
                   setState(() => _autoCenter = false);
@@ -209,9 +243,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                   Polyline(
                     points: _selectedRoute.pathCoordinates,
                     strokeWidth: 6.0,
-                    color: _selectedRoute.vehicleType == VehicleType.tricycle
-                        ? const Color(0xFF06B6D4)
-                        : const Color(0xFFF59E0B),
+                    color: _getRouteColor(_selectedRoute.category),
                   ),
                 ],
               ),
@@ -241,57 +273,96 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
             ],
           ),
 
-          // 2. Top Navigation Bar
+          // 2. Top Navigation & Regional Selector
           Positioned(
-            top: 50,
+            top: 48,
             left: 16,
             right: 16,
-            child: _buildGlassContainer(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+            child: Column(
+              children: [
+                _buildGlassContainer(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.alt_route, color: Colors.black, size: 20),
                       ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.alt_route, color: Colors.black, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isNavigating ? "LIVE GPS ACTIVE • NATIONWIDE" : "JEEPROUTE PH • PHILIPPINES",
+                              style: TextStyle(
+                                fontSize: 9,
+                                letterSpacing: 1.5,
+                                fontWeight: FontWeight.w900,
+                                color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
+                              ),
+                            ),
+                            Text(
+                              _selectedRoute.signboard,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      _buildTypePill(_selectedRoute.category),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isNavigating ? "LIVE GPS ACTIVE" : "JEEP ROUTE PH",
-                          style: TextStyle(
-                            fontSize: 10,
-                            letterSpacing: 1.5,
-                            fontWeight: FontWeight.w900,
-                            color: _isNavigating ? const Color(0xFF06B6D4) : const Color(0xFFF59E0B),
+                ),
+                const SizedBox(height: 8),
+
+                // Regional Pill Selector
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: PhilippineRegion.values.map((reg) {
+                      final isSelected = reg == _selectedRegion;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6.0),
+                        child: GestureDetector(
+                          onTap: () => _onRegionChanged(reg),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF1E293B).withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFFF59E0B) : Colors.white24,
+                              ),
+                            ),
+                            child: Text(
+                              _getRegionName(reg),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? Colors.black : Colors.white70,
+                              ),
+                            ),
                           ),
                         ),
-                        Text(
-                          _selectedRoute.signboard,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+                      );
+                    }).toList(),
                   ),
-                  _buildTypePill(_selectedRoute.vehicleType),
-                ],
-              ),
-            ).animate().slideY(begin: -0.5, end: 0, duration: 400.ms).fadeIn(),
+                ),
+              ],
+            ).animate().slideY(begin: -0.4, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating Quick Action Controls (Share + Recenter)
+          // 3. Floating Action Controls
           Positioned(
             right: 16,
-            bottom: 335,
+            bottom: 350,
             child: Column(
               children: [
                 if (_isNavigating) ...[
@@ -335,7 +406,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
             ),
           ),
 
-          // 4. Bottom Sheet with "Start Navigation & GPS" Button
+          // 4. Bottom Control Sheet
           Positioned(
             left: 16,
             right: 16,
@@ -346,7 +417,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Start Navigation Button
+                  // Start / Stop Live GPS Navigation Button
                   InkWell(
                     onTap: _toggleNavigation,
                     borderRadius: BorderRadius.circular(14),
@@ -390,14 +461,13 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 14),
 
-                  // Route Selection Pills
+                  // Route Selection Chips for Region
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: sampleRoutes.map((route) {
+                      children: _currentRegionRoutes.map((route) {
                         final isSelected = route.id == _selectedRoute.id;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8.0),
@@ -409,7 +479,7 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                             labelStyle: TextStyle(
                               color: isSelected ? Colors.black : Colors.white70,
                               fontWeight: FontWeight.bold,
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                             onSelected: (_) => _onSelectRoute(route),
                           ),
@@ -460,17 +530,17 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                         trackHeight: 4,
                       ),
                       child: Slider(
-                        value: _tripDistanceKm,
+                        value: _tripDistanceKm.clamp(0.5, 30.0),
                         min: 0.5,
-                        max: 20.0,
-                        divisions: 39,
+                        max: 30.0,
+                        divisions: 59,
                         onChanged: (val) => setState(() => _tripDistanceKm = val),
                       ),
                     ),
 
                   const SizedBox(height: 10),
 
-                  // Fare Summary
+                  // Tariff Card Display
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
@@ -486,8 +556,15 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("CALCULATED FARE", style: TextStyle(fontSize: 10, letterSpacing: 1.2, color: Colors.white54)),
-                            Text(_selectedRoute.name, style: const TextStyle(fontSize: 13, color: Colors.white)),
+                            Text(
+                              "${tariff.label.toUpperCase()} RATE",
+                              style: const TextStyle(fontSize: 10, letterSpacing: 1.2, color: Colors.white54, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              _selectedRoute.name,
+                              style: const TextStyle(fontSize: 12, color: Colors.white),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ],
                         ),
                         Text(
@@ -506,6 +583,75 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
             ).animate().slideY(begin: 0.5, end: 0, duration: 400.ms).fadeIn(),
           ),
         ],
+      ),
+    );
+  }
+
+  Color _getRouteColor(TransitCategory cat) {
+    switch (cat) {
+      case TransitCategory.traditionalJeep:
+        return const Color(0xFFF59E0B);
+      case TransitCategory.modernJeep:
+        return const Color(0xFF10B981);
+      case TransitCategory.edsaCarousel:
+        return const Color(0xFFEC4899);
+      case TransitCategory.ordinaryBus:
+      case TransitCategory.airconBus:
+        return const Color(0xFF3B82F6);
+      case TransitCategory.mrt3:
+      case TransitCategory.lrt1:
+      case TransitCategory.lrt2:
+      case TransitCategory.pnr:
+        return const Color(0xFFA855F7);
+      case TransitCategory.tricycle:
+        return const Color(0xFF06B6D4);
+    }
+  }
+
+  Widget _buildTypePill(TransitCategory cat) {
+    final color = _getRouteColor(cat);
+    String label = "PUV";
+    switch (cat) {
+      case TransitCategory.traditionalJeep:
+        label = "JEEP";
+        break;
+      case TransitCategory.modernJeep:
+        label = "MPUV";
+        break;
+      case TransitCategory.edsaCarousel:
+        label = "CAROUSEL";
+        break;
+      case TransitCategory.ordinaryBus:
+      case TransitCategory.airconBus:
+        label = "BUS";
+        break;
+      case TransitCategory.mrt3:
+        label = "MRT-3";
+        break;
+      case TransitCategory.lrt1:
+        label = "LRT-1";
+        break;
+      case TransitCategory.lrt2:
+        label = "LRT-2";
+        break;
+      case TransitCategory.pnr:
+        label = "PNR";
+        break;
+      case TransitCategory.tricycle:
+        label = "TRIKE";
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
       ),
     );
   }
@@ -573,26 +719,6 @@ class _ModernRouteMapScreenState extends State<ModernRouteMapScreen> {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           child: Icon(icon, color: Colors.black, size: 18),
         ),
-      ),
-    );
-  }
-
-  Widget _buildTypePill(VehicleType type) {
-    final isJeep = type == VehicleType.traditionalJeep;
-    final isModern = type == VehicleType.modernJeep;
-    final color = isModern ? const Color(0xFF10B981) : (isJeep ? const Color(0xFFF59E0B) : const Color(0xFF06B6D4));
-    final label = isModern ? "MPUV" : (isJeep ? "JEEP" : "TRIKE");
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900),
       ),
     );
   }
