@@ -45,18 +45,16 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
   final MapController _mapController = MapController();
   final Distance _distanceCalculator = const Distance();
 
-  // Search & Routing Controller State
   final TextEditingController _originCtrl = TextEditingController(text: "My Current Location");
   final TextEditingController _destCtrl = TextEditingController(text: "UP Diliman Campus");
   LatLng? _searchOriginPoint;
   LatLng? _searchDestPoint;
 
-  PhilippineRegion _selectedRegion = PhilippineRegion.metroManila;
+  final PhilippineRegion _selectedRegion = PhilippineRegion.metroManila;
   late NationwideRoute _selectedRoute;
   double _tripDistanceKm = 3.5;
   bool _isDiscounted = false;
 
-  // Realtime GPS Tracking
   bool _isNavigating = false;
   bool _isLocating = false;
   LatLng? _currentLocation;
@@ -117,6 +115,12 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
       }
     }
 
+    if (permission == LocationPermission.deniedForever) {
+      setState(() => _isLocating = false);
+      _showMessage("Location permission permanently denied in device settings.");
+      return;
+    }
+
     try {
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       final userPt = LatLng(pos.latitude, pos.longitude);
@@ -134,7 +138,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     }
   }
 
-  void _chooseLandmark({required bool isOrigin, required LandmarkNode node}) {
+  void _chooseLandmark(BuildContext sheetContext, {required bool isOrigin, required LandmarkNode node}) {
     setState(() {
       if (isOrigin) {
         _originCtrl.text = node.name;
@@ -144,7 +148,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
         _searchDestPoint = node.coordinates;
       }
     });
-    Navigator.pop(context);
+    Navigator.pop(sheetContext);
     _calculateTripFromSearch();
   }
 
@@ -155,7 +159,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) {
+      builder: (sheetContext) {
         return Container(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -172,7 +176,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   leading: const Icon(Icons.my_location, color: Color(0xFF06B6D4)),
                   title: const Text("Use My Current GPS Location", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                   onTap: () {
-                    Navigator.pop(ctx);
+                    Navigator.pop(sheetContext);
                     _useCurrentLocationAsOrigin();
                   },
                 ),
@@ -180,13 +184,13 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                 child: ListView.builder(
                   shrinkWrap: true,
                   itemCount: searchableLandmarks.length,
-                  itemBuilder: (context, i) {
+                  itemBuilder: (ctx, i) {
                     final node = searchableLandmarks[i];
                     return ListTile(
                       leading: const Icon(Icons.place_outlined, color: Colors.white70),
                       title: Text(node.name, style: const TextStyle(color: Colors.white)),
                       subtitle: Text(node.city, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                      onTap: () => _chooseLandmark(isOrigin: isOrigin, node: node),
+                      onTap: () => _chooseLandmark(sheetContext, isOrigin: isOrigin, node: node),
                     );
                   },
                 ),
@@ -329,7 +333,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Dark Basemap
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -382,7 +385,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ],
           ),
 
-          // 2. Guaranteed Notch-Safe Origin & Destination Search Bar
           Positioned(
             top: 0,
             left: 16,
@@ -394,7 +396,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   child: Column(
                     children: [
-                      // Origin Input Row
                       Row(
                         children: [
                           const Icon(Icons.trip_origin, color: Color(0xFF10B981), size: 18),
@@ -426,8 +427,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                         ],
                       ),
                       const SizedBox(height: 6),
-
-                      // Destination Input Row
                       Row(
                         children: [
                           const Icon(Icons.location_on, color: Color(0xFFEF4444), size: 20),
@@ -459,7 +458,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ).animate().slideY(begin: -0.4, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating Actions
           Positioned(
             right: 16,
             bottom: 390,
@@ -520,7 +518,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ),
           ),
 
-          // 4. Bottom Sheet: Suggested Transportation & Realtime Fares
           Positioned(
             left: 16,
             right: 16,
@@ -604,13 +601,11 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
                   const Text(
                     "SUGGESTED MODES OF TRANSPORTATION",
                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.1, color: Color(0xFFF59E0B)),
                   ),
                   const SizedBox(height: 8),
-
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -666,7 +661,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -687,7 +681,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                       ),
                     ],
                   ),
-
                   Container(
                     margin: const EdgeInsets.top(6),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
