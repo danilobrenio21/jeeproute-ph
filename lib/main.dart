@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'models/puv_route.dart';
 import 'data/sample_routes.dart';
 
@@ -169,6 +170,29 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     );
   }
 
+  // Opens Turn-by-Turn Directions in Google Maps
+  Future<void> _openGoogleMapsNavigation() async {
+    final dest = _selectedRoute.pathCoordinates.last;
+    final destLat = dest.latitude;
+    final destLng = dest.longitude;
+
+    String urlStr;
+    if (_currentLocation != null) {
+      final originLat = _currentLocation!.latitude;
+      final originLng = _currentLocation!.longitude;
+      urlStr = "https://www.google.com/maps/dir/?api=1&origin=$originLat,$originLng&destination=$destLat,$destLng&travelmode=transit";
+    } else {
+      urlStr = "https://www.google.com/maps/dir/?api=1&destination=$destLat,$destLng&travelmode=transit";
+    }
+
+    final uri = Uri.parse(urlStr);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      _showMessage("Could not open Google Maps navigation.");
+    }
+  }
+
   void _shareLiveLocation() {
     if (_currentLocation == null) {
       _showMessage("Acquire GPS coordinates first by starting navigation.");
@@ -220,7 +244,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Esri Watermark-Free Base Map
+          // 1. Watermark-Free Base Map
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -273,7 +297,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ],
           ),
 
-          // 2. Top Navigation & Regional Selector
+          // 2. Top Header & Region Pills
           Positioned(
             top: 48,
             left: 16,
@@ -321,8 +345,6 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-
-                // Regional Pill Selector
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -359,12 +381,27 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
             ).animate().slideY(begin: -0.4, end: 0, duration: 400.ms).fadeIn(),
           ),
 
-          // 3. Floating Action Controls
+          // 3. Floating Actions (Google Maps, Share, Recenter)
           Positioned(
             right: 16,
-            bottom: 350,
+            bottom: 360,
             child: Column(
               children: [
+                FloatingActionButton(
+                  heroTag: "gmaps_btn",
+                  mini: true,
+                  backgroundColor: const Color(0xFF1E293B),
+                  foregroundColor: const Color(0xFF10B981),
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Color(0xFF10B981)),
+                  ),
+                  tooltip: "Open in Google Maps",
+                  onPressed: _openGoogleMapsNavigation,
+                  child: const Icon(Icons.directions, size: 22),
+                ),
+                const SizedBox(height: 10),
                 if (_isNavigating) ...[
                   FloatingActionButton(
                     heroTag: "share_btn",
@@ -376,6 +413,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                       borderRadius: BorderRadius.circular(12),
                       side: const BorderSide(color: Color(0xFF06B6D4)),
                     ),
+                    tooltip: "Share Pin",
                     onPressed: _shareLiveLocation,
                     child: const Icon(Icons.share_location, size: 20),
                   ),
@@ -417,53 +455,101 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Start / Stop Live GPS Navigation Button
-                  InkWell(
-                    onTap: _toggleNavigation,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: _isNavigating
-                              ? [const Color(0xFFDC2626), const Color(0xFF991B1B)]
-                              : [const Color(0xFF06B6D4), const Color(0xFF0891B2)],
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (_isNavigating ? const Color(0xFFDC2626) : const Color(0xFF06B6D4)).withOpacity(0.4),
-                            blurRadius: 14,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _isNavigating ? Icons.stop_circle_outlined : Icons.navigation,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _isNavigating ? "STOP LIVE NAVIGATION" : "START NAVIGATION & TURN ON GPS",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                              letterSpacing: 0.5,
+                  Row(
+                    children: [
+                      // In-App GPS Navigation Toggle
+                      Expanded(
+                        flex: 3,
+                        child: InkWell(
+                          onTap: _toggleNavigation,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: _isNavigating
+                                    ? [const Color(0xFFDC2626), const Color(0xFF991B1B)]
+                                    : [const Color(0xFF06B6D4), const Color(0xFF0891B2)],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (_isNavigating ? const Color(0xFFDC2626) : const Color(0xFF06B6D4)).withOpacity(0.4),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _isNavigating ? Icons.stop_circle_outlined : Icons.navigation,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _isNavigating ? "STOP GPS" : "START LIVE GPS",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+
+                      // Direct Google Maps Button
+                      Expanded(
+                        flex: 2,
+                        child: InkWell(
+                          onTap: _openGoogleMapsNavigation,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF10B981).withOpacity(0.35),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.map, color: Colors.white, size: 18),
+                                SizedBox(width: 6),
+                                Text(
+                                  "G-MAPS",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 14),
 
-                  // Route Selection Chips for Region
+                  // Route Selection Chips
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -489,7 +575,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Distance & Discount Toggle
+                  // Distance & Discount Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -540,7 +626,7 @@ class _NationwideRouteMapScreenState extends State<NationwideRouteMapScreen> {
 
                   const SizedBox(height: 10),
 
-                  // Tariff Card Display
+                  // Calculated Tariff Banner
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
